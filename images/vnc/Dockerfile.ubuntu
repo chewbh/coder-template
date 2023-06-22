@@ -1,0 +1,101 @@
+FROM codercom/enterprise-base:ubuntu
+
+USER root
+
+ARG DEBCONF_NONINTERACTIVE_SEEN=true
+ARG DEBIAN_FRONTEND="noninteractive"
+
+# install vnc (using tigervnc) and linux xfce4 desktop and necessary dependencies
+RUN apt update && apt install -y  \
+  xfce4 \
+  xfce4-goodies
+
+RUN apt update && apt install -y --no-install-recommends \  
+  tigervnc-common \
+  tigervnc-standalone-server \
+  supervisor \
+  && apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
+  
+# Install quality of life packages.
+# RUN yes | unminimize
+
+RUN apt update && apt install -y --no-install-recommends \
+dbus-x11 \
+  xterm \
+  xorg \ 
+  xdg-utils \
+  fonts-lyx \
+  libx11-dev \
+  libxkbfile-dev \
+  libsecret-1-dev \
+  libgbm-dev \
+  libnotify4 \
+  libnss3 \
+  libxss1 \
+  libasound2 \
+  x11-xkb-utils \
+  xauth \
+  xfonts-base \
+  xkb-data \
+  && apt-get clean && \
+  rm -rf /var/lib/apt/lists/*
+
+# Remove packages which may not behave well in a VNC environment.
+RUN apt-get remove -y \
+    xfce4-battery-plugin \
+    xfce4-pulseaudio-plugin \
+    xfce4-power-manager-plugins \
+    light-locker
+
+ARG HOME=/home/coder
+ARG VNC_ROOT_DIR=/opt/vncserver
+
+ENV VNC_SCRIPTS=$VNC_ROOT_DIR/scripts \
+    VNC_SETUP_SCRIPTS=$VNC_ROOT_DIR/setup \
+    VNC_LOG_DIR=$HOME/.vnc/log \
+    VNC_XSTARTUP=$VNC_ROOT_DIR/xstartup \
+    VNC_SUPERVISOR_CONFIG=/etc/supervisor/supervisord.conf \
+    VNC_PORT=5990 \
+    VNC_DISPLAY_ID=:90 \
+    VNC_COL_DEPTH=24 \
+    VNC_RESOLUTION=3840x2160 \
+    NO_VNC_HOME=$VNC_ROOT_DIR/noVNC \
+    NO_VNC_PORT=6081 \
+    XFCE_BASE_DIR=$VNC_ROOT_DIR/xfce4 \
+    XFCE_DEST_DIR=$HOME/.config/xfce4
+
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg && \
+    sudo install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/ && \
+    sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/edge stable main" > /etc/apt/sources.list.d/microsoft-edge-dev.list' && \
+    sudo rm microsoft.gpg && \
+    sudo apt update && sudo apt install -y microsoft-edge-stable
+
+WORKDIR $HOME
+
+#v copy over the vnc configuration and startup scripts
+ADD --chown=coder:coder ./xfce4 $XFCE_BASE_DIR
+ADD --chown=coder:coder ./vnc $VNC_ROOT_DIR
+ADD --chown=coder:coder ./supervisor /etc/supervisor
+
+# ensure all scripts are executable
+RUN find $VNC_SETUP_SCRIPTS -name '*.sh' -exec chmod a+x {} +
+
+RUN $VNC_SETUP_SCRIPTS/set_user_permission.sh $VNC_ROOT_DIR \
+  && chmod +x $VNC_XSTARTUP
+
+# Add Coder-specific scripts and metadata to the image
+COPY ["./coder", "/coder"]
+RUN chmod +x /coder/vnc_service
+
+USER coder
+
+# Install noVNC - HTML5 based VNC viewer and add our index with settings optimized for Coder
+RUN mkdir -p "$NO_VNC_HOME/utils/websockify" && \
+    wget -qO- https://github.com/novnc/noVNC/archive/v1.3.0.tar.gz | tar xz --strip 1 -C "$NO_VNC_HOME" && \
+    wget -qO- https://github.com/novnc/websockify/archive/v0.11.0.tar.gz | tar xz --strip 1 -C "$NO_VNC_HOME/utils/websockify" && \
+    chmod +x -v "$NO_VNC_HOME"/utils/* && \
+    ln -s "$VNC_ROOT_DIR/index.html" "$NO_VNC_HOME/index.html"
+
+EXPOSE $NO_VNC_PORT
+

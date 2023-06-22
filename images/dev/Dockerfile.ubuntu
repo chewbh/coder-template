@@ -1,0 +1,26 @@
+FROM codercom/enterprise-base:ubuntu
+
+USER root
+
+RUN apt update && apt -y install \
+  openjdk-17-jdk
+
+RUN true \
+# Any command which returns non-zero exit code will cause this shell script to exit immediately:
+  && set -e \
+# Activate debugging to show execution details: all commands will be printed before execution
+  && set -x \
+# install packages:
+  && apt-get update \
+# packages for java:
+  && apt-get install -y openjdk-17-jdk openjdk-17-jre \ 
+# clean apt to reduce image size:
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /var/cache/apt
+
+RUN echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> /etc/environment \
+    && echo "M2_HOME=/usr/share/maven" >> /etc/environment
+
+
+USER coder
+
