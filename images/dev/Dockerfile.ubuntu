@@ -1,26 +1,56 @@
+ARG NETWORK_DOMAIN
+
 FROM codercom/enterprise-base:ubuntu
+
+ARG NETWORK_DOMAIN=home.local
+ARG GRADLE_URL=services.gradle.org
+
+ARG GRADLE_VERSION=8.1.1
+ARG YARN_VERSION=1.22.19
+
 
 USER root
 
-RUN apt update && apt -y install \
-  openjdk-17-jdk
-
-RUN true \
-# Any command which returns non-zero exit code will cause this shell script to exit immediately:
-  && set -e \
-# Activate debugging to show execution details: all commands will be printed before execution
-  && set -x \
-# install packages:
-  && apt-get update \
-# packages for java:
-  && apt-get install -y openjdk-17-jdk openjdk-17-jre \ 
-# clean apt to reduce image size:
+# Java development 
+# No need to handle TLS ca certificate as ubuntu openjdk will use the cacerts in /etc/ssl/cert
+RUN apt-get update \
+  # packages for java:
+  && apt-get install -y openjdk-17-jdk openjdk-17-jre maven \ 
+  # clean apt to reduce image size:
   && rm -rf /var/lib/apt/lists/* \
   && rm -rf /var/cache/apt
 
-RUN echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> /etc/environment \
-    && echo "M2_HOME=/usr/share/maven" >> /etc/environment
+RUN mkdir /opt/gradle \
+    && wget https://${GRADLE_URL}/distributions/gradle-${GRADLE_VERSION}-all.zip \
+    && unzip -d /opt/gradle gradle-${GRADLE_VERSION}-all.zip
 
+RUN echo "export NETWORK_DOMAIN=${NETWORK_DOMAIN}" >> /etc/bash.bashrc \
+    && echo "export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> /etc/bash.bashrc \
+    && echo "export M2_HOME=/usr/share/maven" >> /etc/bash.bashrc \
+    && echo "export PATH=$PATH:/opt/gradle/gradle-${GRADLE_VERSION}/bin" >> /etc/bash.bashrc
+
+# Web development
+RUN apt-get update \
+  # packages for system nodejs:
+  && apt-get install -y nodejs \ 
+  # clean apt to reduce image size:
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /var/cache/apt
+
+RUN mkdir -p /opt/nvm
+ADD --chown=coder:coder nvm_install.sh /opt/nvm
+RUN echo "export NVM_NODEJS_ORG_MIRROR=https://nodejs.org/dist" >> /etc/bash.bashrc
+
+RUN wget "https://yarnpkg.com/downloads/${YARN_VERSION}/yarn-v${YARN_VERSION}.tar.gz" \
+    && mkdir -p /opt/yarn \
+    && temp=$(mktemp -d yarn.XXXXXXXXXX) \
+    && tar zxf yarn-v${YARN_VERSION}.tar.gz -C "$temp" \
+    && mv "$temp"/*/* /opt/yarn \
+    && rm -rf "$temp" \
+    && rm yarn-v${YARN_VERSION}.tar.gz 
+
+RUN echo "export PATH=$PATH:/opt/yarn/bin" >> /etc/bash.bashrc
 
 USER coder
 
+RUN sudo apt update && sudo apt install -y zsh
